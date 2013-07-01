@@ -38,6 +38,20 @@ mleakdect.so try to output the result to the standard error output
 when the target program is exiting.  But if the program crashs or aborts,
 it cannot outoput the result.  Use gdb for such case.
 
+    % cat 1.c
+    #include <stdlib.h>
+
+    int
+    main(int argc, char *argv)
+    {
+	    void *m;
+
+	    m = malloc(1000000);
+
+	    *(int *)0 = 1;	/* cause segmentation fault */
+
+	    exit(0);
+    }
     % cc -g 1.c
     % ./a.out
     Segmentation fault (core dumped)
