@@ -266,7 +266,7 @@ mleakdetect_dump(int fd)
 		    "    %11d %6d %11d  ", m->size, m->count,
 		    (int)(m->size / m->count));
 		if (dladdr(m->caller, &dlinfo) != 0 &&
-		    dlinfo.dli_sname[0] != '\0')
+		    dlinfo.dli_sname != NULL && dlinfo.dli_sname[0] != '\0')
 			fprintf(stderr, "%s+0x%x\n",
 			    dlinfo.dli_sname,
 			    (int)((caddr_t)m->caller -
