@@ -263,7 +263,7 @@ mleakdetect_dump(int fd)
 
 	TAILQ_FOREACH(m, &mleakdetect_stat, next) {
 		fprintf(stderr,
-		    "    %11d %6d %11d  ", m->size, m->count,
+		    "    %11zu %6d %11d  ", m->size, m->count,
 		    (int)(m->size / m->count));
 		if (dladdr(m->caller, &dlinfo) != 0 &&
 		    dlinfo.dli_sname != NULL && dlinfo.dli_sname[0] != '\0')
