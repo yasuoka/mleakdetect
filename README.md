@@ -71,8 +71,7 @@ it cannot outoput the result.  Use gdb for such case.
     Starting program: /home/..(snip)../mleakdetect/a.out
 
     Program received signal SIGSEGV, Segmentation fault.
-    0x00001155e4000d92 in main (argc=1, argv=0x7f7ffffcf118 "\020ÿ\177\177")
-	at 1.c:10
+    0x00001155e4000d92 in main (argc=1, argv=0x7f7ffffcf118 "") at 1.c:10
     10              *(int *)0 = 1;  /* cause segmentation fault */
     (gdb) call mleakdetect_dump(2)
 
@@ -88,3 +87,34 @@ it cannot outoput the result.  Use gdb for such case.
 	    1000000      1     1000000  0x1155e4000d89
     $1 = 0
     (gdb)
+
+Normally symbol names of the executable itself are not resolved.
+Compile the executable with -Wl,-E if you want to use this with the
+symbol names.
+
+    % cc -g -Wl,-E 1.c
+    % gdb a.out
+    GNU gdb 6.3
+      :
+      (snip)
+      :
+    (gdb) set environment LD_PRELOAD=./mleakdetect.so
+    (gdb) run
+    Starting program: /disk1/home/yasuoka/mleakdetect/a.out
+
+    Program received signal SIGSEGV, Segmentation fault.
+    0x0000000000400a52 in main (argc=1, argv=0x7f7ffffced68 "") at 1.c:10
+    10                  *(int *)0 = 1;      /* cause segmentation fault */
+    (gdb) call mleakdetect_dump(2)
+
+    a.out (pid=17855) mleakdetect report:
+	malloc                 1
+	free                   0
+	unknown free           0
+	unfreed                1 (100.00%)
+	total leaks      1000000
+
+    memory leaks:
+	total bytes  count  avg. bytes  calling func(addr)
+	    1000000      1     1000000  main+0x19
+    (gdb) 
