@@ -209,7 +209,7 @@ void
 mleakdetect_dump(int fd)
 {
 	FILE		*out;
-	struct memchunk	*m, *mt, *ms, *n, *l;
+	struct memchunk	*m,  *ms, *n, *l;
 	Dl_info		 dlinfo;
 	size_t		 total_leaks = 0;
 	extern char	*__progname;
@@ -242,16 +242,20 @@ mleakdetect_dump(int fd)
 		/ mleakdetect_malloc_count);
 
 	if (TAILQ_EMPTY(&mleakdetect_stat)) {
-		TAILQ_FOREACH_SAFE(m, &mleakdetect_memchunk, next, mt) {
-			TAILQ_REMOVE(&mleakdetect_memchunk, m, next);
+		TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
 			TAILQ_FOREACH(ms, &mleakdetect_stat, next) {
 				if (m->caller == ms->caller)
 					break;
 			}
 			if (ms == NULL) {
-				ms = m;
+				if ((ms = mleakdetect_malloc(
+				    sizeof(struct memchunk))) == NULL) {
+					fprintf(out, "malloc failed\n");
+					goto on_error;
+				}
+				*ms = *m;
 				ms->count = 0;
-				TAILQ_INSERT_TAIL(&mleakdetect_stat, m, next);
+				TAILQ_INSERT_TAIL(&mleakdetect_stat, ms, next);
 			} else
 				ms->size += m->size;
 			ms->count++;
@@ -299,6 +303,7 @@ mleakdetect_dump(int fd)
 		else
 			fprintf(out, "%p\n", m->caller);
 	}
+on_error:
 	fclose(out);
 	mleakdetect_stopped = 0;
 }
