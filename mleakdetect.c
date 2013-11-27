@@ -40,6 +40,7 @@ static int		   mleakdetect_initialized = 0;
 static int		   mleakdetect_malloc_count = 0; 
 static int		   mleakdetect_free_count = 0; 
 static int		   mleakdetect_unknown_free_count = 0; 
+static int		   mleakdetect_stopped = 0;
 
 static void	*malloc0 (size_t, void *);
 static void	 mleakdetect_initialize (void);
@@ -76,6 +77,8 @@ malloc0(size_t size, void *caller)
 {
 	struct memchunk *m;
 
+	if (mleakdetect_stopped)
+		return (mleakdetect_malloc(size));
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
 
@@ -122,7 +125,13 @@ calloc(size_t nmemb, size_t size)
 {
 	size_t		 cnt;
 	struct memchunk *m;
+	void		*r;
 
+	if (mleakdetect_stopped) {
+		r = mleakdetect_malloc(size);
+		memset(r, 0, size);
+		return (r);
+	}
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
 	
@@ -171,6 +180,10 @@ free(void *mem)
 {
 	struct memchunk	*m, *mt;
 
+	if (mleakdetect_stopped) {
+		mleakdetect_free(mem);
+		return;
+	}
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
 
@@ -201,6 +214,7 @@ mleakdetect_dump(int fd)
 	size_t		 total_leaks = 0;
 	extern char	*__progname;
 
+	mleakdetect_stopped = 1;
 	/*
 	 * dup fd before fdopen.  We would like to close FILE *out but
 	 * need to keep opening the underlaying file descriptor.
@@ -286,4 +300,5 @@ mleakdetect_dump(int fd)
 			fprintf(out, "%p\n", m->caller);
 	}
 	fclose(out);
+	mleakdetect_stopped = 0;
 }
