@@ -199,17 +199,27 @@ mleakdetect_dump(int fd)
 	struct memchunk	*m, *mt, *ms, *n, *l;
 	Dl_info		 dlinfo;
 	size_t		 total_leaks = 0;
+	extern char	*__progname;
 
-	if ((out = fdopen(fd, "a+")) == NULL)
+	/*
+	 * dup fd before fdopen.  We would like to close FILE *out but
+	 * need to keep opening the underlaying file descriptor.
+	 */
+	if ((fd = dup(fd)) < 0)
 		return;
+	if ((out = fdopen(dup(fd), "a+")) == NULL) {
+		close(fd);
+		return;
+	}
 
 	fprintf(stderr,
 	    "\n"
-	    "mleakdetect report:\n"
+	    "%s (pid=%d) mleakdetect report:\n"
 	    "    malloc        %10d\n"
 	    "    free          %10d\n"
 	    "    unknown free  %10d\n"
 	    "    unfreed       %10d (%6.2f%%)\n",
+	    __progname, (int)getpid(),
 	    mleakdetect_malloc_count, mleakdetect_free_count,
 	    mleakdetect_unknown_free_count,
 	    mleakdetect_malloc_count - mleakdetect_free_count,
