@@ -212,7 +212,7 @@ mleakdetect_dump(int fd)
 		return;
 	}
 
-	fprintf(stderr,
+	fprintf(out,
 	    "\n"
 	    "%s (pid=%d) mleakdetect report:\n"
 	    "    malloc        %10d\n"
@@ -267,23 +267,23 @@ mleakdetect_dump(int fd)
 		n = TAILQ_NEXT(m, next);
 	} while (n != l && m != l);
 
-	fprintf(stderr, "    total leaks   %10zu\n\n", total_leaks);
-	fprintf(stderr, "memory leaks:\n");
-	fprintf(stderr,
+	fprintf(out, "    total leaks   %10zu\n\n", total_leaks);
+	fprintf(out, "memory leaks:\n");
+	fprintf(out,
 	    "    total bytes  count  avg. bytes  calling func(addr)\n");
 
 	TAILQ_FOREACH(m, &mleakdetect_stat, next) {
-		fprintf(stderr,
+		fprintf(out,
 		    "    %11zu %6d %11d  ", m->size, m->count,
 		    (int)(m->size / m->count));
 		if (dladdr(m->caller, &dlinfo) != 0 &&
 		    dlinfo.dli_sname != NULL && dlinfo.dli_sname[0] != '\0')
-			fprintf(stderr, "%s+0x%x\n",
+			fprintf(out, "%s+0x%x\n",
 			    dlinfo.dli_sname,
 			    (int)((caddr_t)m->caller -
 				    (caddr_t)dlinfo.dli_saddr));
 		else
-			fprintf(stderr, "%p\n", m->caller);
+			fprintf(out, "%p\n", m->caller);
 	}
 	fclose(out);
 }
