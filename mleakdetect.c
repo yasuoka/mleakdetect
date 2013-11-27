@@ -236,6 +236,7 @@ mleakdetect_dump(int fd)
 			}
 			if (ms == NULL) {
 				ms = m;
+				ms->count = 0;
 				TAILQ_INSERT_TAIL(&mleakdetect_stat, m, next);
 			} else
 				ms->size += m->size;
