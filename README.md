@@ -15,24 +15,30 @@ Usage
 
 To check `make' command leaks.
 
-    % env LD_PRELOAD=./mleakdetect.so make
-    mleakdetect report:
-        malloc               579
-        free                  86
-        unknown free         105
-        unfreed              493 ( 85.15%)
-        total leaks        88277
-    
+
+    % env LD_PRELOAD=./mleakdetect.so /usr/bin/cal
+       November 2013
+    Su Mo Tu We Th Fr Sa
+		    1  2
+     3  4  5  6  7  8  9
+    10 11 12 13 14 15 16
+    17 18 19 20 21 22 23
+    24 25 26 27 28 29 30
+
+
+    cal (pid=29747) mleakdetect report:
+	malloc                 3
+	free                   1
+	unknown free           0
+	unfreed                2 ( 66.67%)
+	total leaks        92496
+
     memory leaks:
-        total bytes  count  avg. bytes  calling func(addr)
-              36209      9        4023  Dir_Destroy+0x802e
-              34188    477          71  Dir_Destroy+0x8086
-              16384      1       16384  __smakebuf+0x6c
-               1024      2         512  Dir_Destroy+0x7fe6
-                360      1         360  setenv+0x13b
-                112      3          37  setenv+0x199
-    `mleakdetect.so' is up to date.
+	total bytes  count  avg. bytes  calling func(addr)
+	      65536      1       65536  __smakebuf+0x6c
+	      26960      1       26960  gmtime_r+0x446
     %
+
 
 mleakdect.so try to output the result to the standard error output
 when the target program is exiting.  But if the program crashs or aborts,
@@ -70,7 +76,7 @@ it cannot outoput the result.  Use gdb for such case.
     10              *(int *)0 = 1;  /* cause segmentation fault */
     (gdb) call mleakdetect_dump(2)
 
-    mleakdetect report:
+    a.out (pid=29747) mleakdetect report:
 	malloc                 1
 	free                   0
 	unknown free           0
