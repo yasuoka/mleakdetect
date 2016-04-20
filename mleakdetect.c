@@ -266,7 +266,7 @@ mleakdetect_dump(int fd)
 		total_leaks += m->size;
 	}
 
-	/* buffle sort by size */
+	/* bubble sort by size */
 	l = NULL;
 	m = TAILQ_FIRST(&mleakdetect_stat);
 	n = TAILQ_NEXT(m, next);
