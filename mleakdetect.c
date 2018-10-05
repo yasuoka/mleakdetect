@@ -36,16 +36,23 @@ struct memchunk_head	   mleakdetect_memchunk;
 struct memchunk_head	   mleakdetect_stat;
 static void		*(*mleakdetect_malloc)(size_t) = NULL;
 static void		 (*mleakdetect_free)(void *) = NULL;
+static void		 (*mleakdetect_freezero)(void *, size_t) = NULL;
 static int		   mleakdetect_initialized = 0; 
 static int		   mleakdetect_malloc_count = 0; 
 static int		   mleakdetect_free_count = 0; 
 static int		   mleakdetect_unknown_free_count = 0; 
 static int		   mleakdetect_stopped = 0;
 
-static void	*malloc0 (size_t, void *);
-static void	 mleakdetect_initialize (void);
-static void	 mleakdetect_atexit (void);
-void		 mleakdetect_dump (int);
+static void	*malloc0(size_t, void *);
+static void	*realloc0(void*, size_t, void *);
+static void	 mleakdetect_initialize(void);
+static void	 mleakdetect_atexit(void);
+void		 mleakdetect_dump(int);
+
+/* decls for the systems which doesn't have modern APIs. */
+void		 freezero(void *, size_t);
+void		*reallocarray(void *, size_t, size_t);
+void		*recallocarray(void *, size_t, size_t, size_t);
 
 static void
 mleakdetect_initialize(void)
@@ -58,8 +65,9 @@ mleakdetect_initialize(void)
 	TAILQ_INIT(&mleakdetect_memchunk);
 	TAILQ_INIT(&mleakdetect_stat);
 
-	mleakdetect_malloc  = dlsym(libc_h, "malloc");
-	mleakdetect_free    = dlsym(libc_h, "free");
+	mleakdetect_malloc   = dlsym(libc_h, "malloc");
+	mleakdetect_free     = dlsym(libc_h, "free");
+	mleakdetect_freezero = dlsym(libc_h, "freezero");
 
 	mleakdetect_initialized = 1;
 
@@ -97,6 +105,12 @@ malloc0(size_t size, void *caller)
 void *
 realloc(void *ptr, size_t size)
 {
+	return (realloc0(ptr, size, __builtin_return_address(0)));
+}
+
+void *
+realloc0(void *ptr, size_t size, void *caller)
+{
 	void *r;
 	struct memchunk *m;
 
@@ -104,13 +118,13 @@ realloc(void *ptr, size_t size)
 		mleakdetect_initialize();
 
 	if (ptr == NULL)
-		return malloc0(size, __builtin_return_address(0));
+		return malloc0(size, caller);
 
 	TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
 		if (m->data == ptr)
 			break;
 	}
-	r = malloc0(size, __builtin_return_address(0));
+	r = malloc0(size, caller);
 	if (r == NULL)
 		return (r);
 	memcpy(r, m->data, MIN(m->size, size));
@@ -149,6 +163,25 @@ calloc(size_t nmemb, size_t size)
 	return (m->data);
 }
 
+void *
+reallocarray(void *ptr, size_t nmemb, size_t size)
+{
+	return (realloc0(ptr, nmemb * size, __builtin_return_address(0)));
+}
+
+void *
+recallocarray(void *ptr, size_t oldnmemb, size_t nmemb, size_t size)
+{
+	void	*ret;
+
+	ret = realloc0(ptr, nmemb * size, __builtin_return_address(0));
+
+	if (ret != NULL && nmemb - oldnmemb > 0)
+		memset(ret + oldnmemb * size, 0, (nmemb - oldnmemb) * size);
+
+	return (ret);
+}
+
 char *
 strdup(const char *str)
 {
@@ -178,10 +211,19 @@ strndup(const char *str, size_t maxlen)
 void
 free(void *mem)
 {
+	freezero(mem, 0);
+}
+
+void
+freezero(void *mem, size_t size)
+{
 	struct memchunk	*m, *mt;
 
 	if (mleakdetect_stopped) {
-		mleakdetect_free(mem);
+		if (mleakdetect_freezero != NULL && size > 0)
+			mleakdetect_freezero(mem, size);
+		else
+			mleakdetect_free(mem);
 		return;
 	}
 	if (mleakdetect_initialized == 0)
@@ -196,7 +238,10 @@ free(void *mem)
 		}
 	}
 	mleakdetect_unknown_free_count++;
-	mleakdetect_free(mem);
+	if (mleakdetect_freezero != NULL && size > 0)
+		mleakdetect_freezero(mem, size);
+	else
+		mleakdetect_free(mem);
 }
 
 static void
