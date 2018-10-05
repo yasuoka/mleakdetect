@@ -7,7 +7,7 @@ Compile
 -------
 
     % make
-    cc  -shared -o mleakdetect.so mleakdetect.c
+    cc -fPIC -g -Wall -shared -o mleakdetect.so mleakdetect.c
     %
 
 Usage
@@ -42,7 +42,7 @@ To check `make' command leaks.
 
 mleakdect.so try to output the result to the standard error output
 when the target program is exiting.  But if the program crashs or aborts,
-it cannot outoput the result.  Use gdb for such case.
+it cannot output the result.  Use gdb for such cases.
 
     % cat 1.c
     #include <stdlib.h>
