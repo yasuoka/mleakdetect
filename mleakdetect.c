@@ -199,9 +199,12 @@ char *
 strndup(const char *str, size_t maxlen)
 {
 	void	*p;
-	int	 lstr;
+	int	 lstr = 0;
 
-	lstr = MIN(strlen(str), maxlen) + 1;
+	while (str[lstr] != '\0' && lstr < maxlen)
+		lstr++;
+	lstr++;
+
 	p = malloc0(lstr, __builtin_return_address(0));
 	strlcpy(p, str, lstr);
 
