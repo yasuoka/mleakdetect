@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 struct memchunk {
 	void			*caller;
@@ -31,6 +32,7 @@ struct memchunk {
 	u_char data[0];
 };
 TAILQ_HEAD(memchunk_head, memchunk);
+static pthread_spinlock_t mleakdetect_lock;
 
 struct memchunk_head	   mleakdetect_memchunk;
 struct memchunk_head	   mleakdetect_stat;
@@ -54,6 +56,13 @@ void		 freezero(void *, size_t);
 void		*reallocarray(void *, size_t, size_t);
 void		*recallocarray(void *, size_t, size_t, size_t);
 
+/* dummy spin lock functions used if pthread is not linked */
+int		 pthread_spin_init(pthread_spinlock_t *, int)
+		    __attribute__((weak));
+int		 pthread_spin_lock(pthread_spinlock_t *) __attribute__((weak));
+int		 pthread_spin_unlock(pthread_spinlock_t *)
+		    __attribute__((weak));
+
 static void
 mleakdetect_initialize(void)
 {
@@ -70,6 +79,10 @@ mleakdetect_initialize(void)
 	mleakdetect_freezero = dlsym(libc_h, "freezero");
 
 	mleakdetect_initialized = 1;
+
+	mleakdetect_stopped = 1;
+	pthread_spin_init(&mleakdetect_lock, 0);
+	mleakdetect_stopped = 0;
 
 	atexit(mleakdetect_atexit);
 }
@@ -94,10 +107,12 @@ malloc0(size_t size, void *caller)
 	if (m == NULL)
 		return (NULL);
 
-	mleakdetect_malloc_count++;
 	m->size = size;
 	m->caller = caller;
+	pthread_spin_lock(&mleakdetect_lock);
+	mleakdetect_malloc_count++;
 	TAILQ_INSERT_TAIL(&mleakdetect_memchunk, m, next);
+	pthread_spin_unlock(&mleakdetect_lock);
 
 	return (m->data);
 }
@@ -120,10 +135,12 @@ realloc0(void *ptr, size_t size, void *caller)
 	if (ptr == NULL)
 		return malloc0(size, caller);
 
+	pthread_spin_lock(&mleakdetect_lock);
 	TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
 		if (m->data == ptr)
 			break;
 	}
+	pthread_spin_unlock(&mleakdetect_lock);
 	r = malloc0(size, caller);
 	if (r == NULL)
 		return (r);
@@ -155,10 +172,12 @@ calloc(size_t nmemb, size_t size)
 		return (NULL);
 	memset(m, 0, (nmemb + cnt) * size);
 
-	mleakdetect_malloc_count++;
 	m->size = (nmemb + cnt) * size;
 	m->caller = __builtin_return_address(0);
+	pthread_spin_lock(&mleakdetect_lock);
+	mleakdetect_malloc_count++;
 	TAILQ_INSERT_TAIL(&mleakdetect_memchunk, m, next);
+	pthread_spin_unlock(&mleakdetect_lock);
 
 	return (m->data);
 }
@@ -232,15 +251,18 @@ freezero(void *mem, size_t size)
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
 
+	pthread_spin_lock(&mleakdetect_lock);
 	TAILQ_FOREACH_SAFE(m, &mleakdetect_memchunk, next, mt) {
 		if (m->data == mem) {
 			TAILQ_REMOVE(&mleakdetect_memchunk, m, next);
 			mleakdetect_free_count++;
+			pthread_spin_unlock(&mleakdetect_lock);
 			mleakdetect_free(m);
 			return;
 		}
 	}
 	mleakdetect_unknown_free_count++;
+	pthread_spin_unlock(&mleakdetect_lock);
 	if (mleakdetect_freezero != NULL && size > 0)
 		mleakdetect_freezero(mem, size);
 	else
@@ -294,6 +316,7 @@ mleakdetect_dump(int fd)
 		mleakdetect_free(m);
 	}
 
+	pthread_spin_lock(&mleakdetect_lock);
 	TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
 		TAILQ_FOREACH(ms, &mleakdetect_stat, next) {
 			if (m->caller == ms->caller)
@@ -313,6 +336,7 @@ mleakdetect_dump(int fd)
 		ms->count++;
 		total_leaks += m->size;
 	}
+	pthread_spin_unlock(&mleakdetect_lock);
 
 	/* bubble sort by size */
 	l = NULL;
@@ -357,4 +381,23 @@ mleakdetect_dump(int fd)
 on_error:
 	fclose(out);
 	mleakdetect_stopped = 0;
+}
+
+/* dummy spin lock functions used if pthread is not linked */
+int
+pthread_spin_init(pthread_spinlock_t *lock, int pshared)
+{
+	return (0);
+}
+
+int
+pthread_spin_lock(pthread_spinlock_t *lock)
+{
+	return (0);
+}
+
+int
+pthread_spin_unlock(pthread_spinlock_t *lock)
+{
+	return (0);
 }
