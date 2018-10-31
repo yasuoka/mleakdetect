@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -47,6 +48,7 @@ static int		   mleakdetect_stopped = 0;
 
 static void	*malloc0(size_t, void *);
 static void	*realloc0(void*, size_t, void *);
+static int	 vasprintf0(char **, const char *, va_list, void *);
 static void	 mleakdetect_initialize(void);
 static void	 mleakdetect_atexit(void);
 void		 mleakdetect_dump(int);
@@ -228,6 +230,56 @@ strndup(const char *str, size_t maxlen)
 	strlcpy(p, str, lstr);
 
 	return (p);
+}
+
+int
+vasprintf(char **ret, const char *format, va_list ap)
+{
+	return vasprintf0(ret, format, ap, __builtin_return_address(0));
+}
+
+int
+asprintf(char **ret, const char *format, ...)
+{
+	va_list	 ap;
+	int	 rv;
+
+	va_start(ap, format);
+	rv = vasprintf0(ret, format, ap, __builtin_return_address(0));
+	va_end(ap);
+
+	return (rv);
+}
+
+static int
+vasprintf0(char **ret, const char *format, va_list ap, void *caller)
+{
+	char	*buf = NULL;
+	int	 siz = 1024, len = 0;
+	va_list	 ap0;
+
+	for (;;) {
+		buf = malloc0(siz, caller);
+		va_copy(ap0, ap);
+		len = vsnprintf(buf, siz, format, ap0);
+		if (len != -1 && len < siz + 1)
+			break;
+		/* error or truncated */
+		freezero(buf, siz);
+		buf = NULL;
+		if (len == -1)
+			break;
+		siz *= 2;
+	}
+
+	if (ret != NULL) {
+		*ret = buf;
+		buf = NULL;
+	}
+	if (buf != NULL)
+		freezero(buf, siz);
+
+	return (len);
 }
 
 void
