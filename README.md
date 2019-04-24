@@ -13,7 +13,7 @@ Compile
 Usage
 -----
 
-To check `make' command leaks.
+To check `cal' command leaks.
 
 
     % env LD_PRELOAD=./mleakdetect.so /usr/bin/cal
