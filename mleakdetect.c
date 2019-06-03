@@ -393,8 +393,8 @@ mleakdetect_dump(int fd)
 	/* bubble sort by size */
 	l = NULL;
 	m = TAILQ_FIRST(&mleakdetect_stat);
-	n = TAILQ_NEXT(m, next);
-	do {
+	n = (m != NULL)? TAILQ_NEXT(m, next) : NULL;
+	while (n != l && m != l) {
 		while (n != NULL && n != l) {
 			if (m->size < n->size) {
 				/* swap m and n */
@@ -410,7 +410,7 @@ mleakdetect_dump(int fd)
 		l = m;
 		m = TAILQ_FIRST(&mleakdetect_stat);
 		n = TAILQ_NEXT(m, next);
-	} while (n != l && m != l);
+	}
 
 	fprintf(out, "    total leaks   %10zu\n\n", total_leaks);
 	fprintf(out, "memory leaks:\n");
