@@ -38,6 +38,7 @@ static pthread_spinlock_t mleakdetect_lock;
 struct memchunk_head	   mleakdetect_memchunk;
 struct memchunk_head	   mleakdetect_stat;
 static void		*(*mleakdetect_malloc)(size_t) = NULL;
+static void		*(*mleakdetect_realloc)(void *, size_t) = NULL;
 static void		 (*mleakdetect_free)(void *) = NULL;
 static void		 (*mleakdetect_freezero)(void *, size_t) = NULL;
 static int		   mleakdetect_initialized = 0; 
@@ -77,6 +78,7 @@ mleakdetect_initialize(void)
 	TAILQ_INIT(&mleakdetect_stat);
 
 	mleakdetect_malloc   = dlsym(libc_h, "malloc");
+	mleakdetect_realloc  = dlsym(libc_h, "realloc");
 	mleakdetect_free     = dlsym(libc_h, "free");
 	mleakdetect_freezero = dlsym(libc_h, "freezero");
 
@@ -143,12 +145,13 @@ realloc0(void *ptr, size_t size, void *caller)
 			break;
 	}
 	pthread_spin_unlock(&mleakdetect_lock);
+	if (m == NULL)
+		return (mleakdetect_realloc(ptr, size));
 	r = malloc0(size, caller);
 	if (r == NULL)
 		return (r);
 	memcpy(r, m->data, MIN(m->size, size));
-	if (m != NULL)
-		free(m->data);
+	free(m->data);
 
 	return (r);
 }
