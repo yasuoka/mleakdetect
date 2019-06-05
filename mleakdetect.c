@@ -15,6 +15,7 @@
  */
 #include <sys/param.h>
 #include <sys/queue.h>
+#include <sys/tree.h>
 
 #include <dlfcn.h>
 #include <stddef.h>
@@ -29,13 +30,19 @@ struct memchunk {
 	void			*caller;
 	size_t			 size;
 	int			 count;
+	RB_ENTRY(memchunk)	 tree;
 	TAILQ_ENTRY(memchunk)	 next;
 	u_char data[0];
 };
+RB_HEAD(memchunk_tree, memchunk);
 TAILQ_HEAD(memchunk_head, memchunk);
+
+static int memchunk_cmp(struct memchunk *, struct memchunk *);
+RB_PROTOTYPE_STATIC(memchunk_tree, memchunk, tree, memchunk_cmp);
+
 static pthread_spinlock_t mleakdetect_lock;
 
-struct memchunk_head	   mleakdetect_memchunk;
+struct memchunk_tree	   mleakdetect_memchunk;
 struct memchunk_head	   mleakdetect_stat;
 static void		*(*mleakdetect_malloc)(size_t) = NULL;
 static void		*(*mleakdetect_realloc)(void *, size_t) = NULL;
@@ -74,7 +81,7 @@ mleakdetect_initialize(void)
 	if ((libc_h = dlopen("libc.so", RTLD_NOW)) == NULL)
 		return;
 
-	TAILQ_INIT(&mleakdetect_memchunk);
+	RB_INIT(&mleakdetect_memchunk);
 	TAILQ_INIT(&mleakdetect_stat);
 
 	mleakdetect_malloc   = dlsym(libc_h, "malloc");
@@ -113,9 +120,10 @@ malloc0(size_t size, void *caller)
 
 	m->size = size;
 	m->caller = caller;
+
 	pthread_spin_lock(&mleakdetect_lock);
 	mleakdetect_malloc_count++;
-	TAILQ_INSERT_TAIL(&mleakdetect_memchunk, m, next);
+	RB_INSERT(memchunk_tree, &mleakdetect_memchunk, m);
 	pthread_spin_unlock(&mleakdetect_lock);
 
 	return (m->data);
@@ -131,7 +139,7 @@ void *
 realloc0(void *ptr, size_t size, void *caller)
 {
 	void *r;
-	struct memchunk *m;
+	struct memchunk *m, *m0;
 
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
@@ -139,19 +147,22 @@ realloc0(void *ptr, size_t size, void *caller)
 	if (ptr == NULL)
 		return malloc0(size, caller);
 
+	m0 = (struct memchunk *)
+	    ((caddr_t)ptr - offsetof(struct memchunk, data));
+
 	pthread_spin_lock(&mleakdetect_lock);
-	TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
-		if (m->data == ptr)
-			break;
-	}
+	m = RB_FIND(memchunk_tree, &mleakdetect_memchunk, m0);
 	pthread_spin_unlock(&mleakdetect_lock);
 	if (m == NULL)
 		return (mleakdetect_realloc(ptr, size));
+
 	r = malloc0(size, caller);
 	if (r == NULL)
 		return (r);
-	memcpy(r, m->data, MIN(m->size, size));
-	free(m->data);
+	if (m != NULL) {
+		memcpy(r, m->data, MIN(m->size, size));
+		free(m->data);
+	}
 
 	return (r);
 }
@@ -181,7 +192,7 @@ calloc(size_t nmemb, size_t size)
 	m->caller = __builtin_return_address(0);
 	pthread_spin_lock(&mleakdetect_lock);
 	mleakdetect_malloc_count++;
-	TAILQ_INSERT_TAIL(&mleakdetect_memchunk, m, next);
+	RB_INSERT(memchunk_tree, &mleakdetect_memchunk, m);
 	pthread_spin_unlock(&mleakdetect_lock);
 
 	return (m->data);
@@ -294,7 +305,10 @@ free(void *mem)
 void
 freezero(void *mem, size_t size)
 {
-	struct memchunk	*m, *mt;
+	struct memchunk	*m, *m0;
+
+	if (mem == NULL)
+		return;
 
 	if (mleakdetect_stopped) {
 		if (mleakdetect_freezero != NULL && size > 0)
@@ -306,19 +320,21 @@ freezero(void *mem, size_t size)
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
 
+	m0 = (struct memchunk *)
+	    ((caddr_t)mem - offsetof(struct memchunk, data));
+
 	pthread_spin_lock(&mleakdetect_lock);
-	TAILQ_FOREACH_SAFE(m, &mleakdetect_memchunk, next, mt) {
-		if (m->data == mem) {
-			TAILQ_REMOVE(&mleakdetect_memchunk, m, next);
-			mleakdetect_free_count++;
-			pthread_spin_unlock(&mleakdetect_lock);
-			mleakdetect_free(m);
-			return;
-		}
-	}
-	mleakdetect_unknown_free_count++;
+	m = RB_FIND(memchunk_tree, &mleakdetect_memchunk, m0);
+	if (m != NULL) {
+		RB_REMOVE(memchunk_tree, &mleakdetect_memchunk, m);
+		mleakdetect_free_count++;
+	} else
+		mleakdetect_unknown_free_count++;
 	pthread_spin_unlock(&mleakdetect_lock);
-	if (mleakdetect_freezero != NULL && size > 0)
+
+	if (m != NULL)
+		mleakdetect_free(m);
+	else if (mleakdetect_freezero != NULL && size > 0)
 		mleakdetect_freezero(mem, size);
 	else
 		mleakdetect_free(mem);
@@ -372,7 +388,7 @@ mleakdetect_dump(int fd)
 	}
 
 	pthread_spin_lock(&mleakdetect_lock);
-	TAILQ_FOREACH(m, &mleakdetect_memchunk, next) {
+	RB_FOREACH(m, memchunk_tree, &mleakdetect_memchunk) {
 		TAILQ_FOREACH(ms, &mleakdetect_stat, next) {
 			if (m->caller == ms->caller)
 				break;
@@ -456,3 +472,11 @@ pthread_spin_unlock(pthread_spinlock_t *lock)
 {
 	return (0);
 }
+
+int
+memchunk_cmp(struct memchunk *a, struct memchunk *b)
+{
+	return a - b;
+}
+
+RB_GENERATE_STATIC(memchunk_tree, memchunk, tree, memchunk_cmp);
