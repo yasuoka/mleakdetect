@@ -18,8 +18,11 @@
 #include <sys/tree.h>
 
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
@@ -36,6 +39,7 @@ struct memchunk {
 };
 RB_HEAD(memchunk_tree, memchunk);
 TAILQ_HEAD(memchunk_head, memchunk);
+#define	MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
 
 static int memchunk_cmp(struct memchunk *, struct memchunk *);
 RB_PROTOTYPE_STATIC(memchunk_tree, memchunk, tree, memchunk_cmp);
@@ -56,10 +60,13 @@ static int		   mleakdetect_stopped = 0;
 
 static void	*malloc0(size_t, void *);
 static void	*realloc0(void*, size_t, void *);
+static void	*calloc0(size_t, size_t, void *);
 static int	 vasprintf0(char **, const char *, va_list, void *);
 static void	 mleakdetect_initialize(void);
 static void	 mleakdetect_atexit(void);
 void		 mleakdetect_dump(int);
+/* from open_memstream.c */
+static FILE	*mleakdetect_open_memstream(char **, size_t *, void *);
 
 /* decls for the systems which doesn't have modern APIs. */
 void		 freezero(void *, size_t);
@@ -160,7 +167,7 @@ realloc0(void *ptr, size_t size, void *caller)
 	if (r == NULL)
 		return (r);
 	if (m != NULL) {
-		memcpy(r, m->data, MIN(m->size, size));
+		memcpy(r, m->data, MINIMUM(m->size, size));
 		free(m->data);
 	}
 
@@ -168,7 +175,7 @@ realloc0(void *ptr, size_t size, void *caller)
 }
 
 void *
-calloc(size_t nmemb, size_t size)
+calloc0(size_t nmemb, size_t size, void *caller)
 {
 	size_t		 cnt;
 	struct memchunk *m;
@@ -196,6 +203,12 @@ calloc(size_t nmemb, size_t size)
 	pthread_spin_unlock(&mleakdetect_lock);
 
 	return (m->data);
+}
+
+void *
+calloc(size_t nmemb, size_t size)
+{
+	return (calloc0(nmemb, size, __builtin_return_address(0)));
 }
 
 void *
@@ -294,6 +307,13 @@ vasprintf0(char **ret, const char *format, va_list ap, void *caller)
 		freezero(buf, siz);
 
 	return (len);
+}
+
+FILE *
+open_memstream(char **pbuf, size_t *psize)
+{
+	return (mleakdetect_open_memstream(pbuf, psize,
+	    __builtin_return_address(0)));
 }
 
 void
@@ -468,3 +488,147 @@ memchunk_cmp(struct memchunk *a, struct memchunk *b)
 }
 
 RB_GENERATE_STATIC(memchunk_tree, memchunk, tree, memchunk_cmp);
+
+/*
+ * Adapted from OpenBSD's lib/libc/stdio/open_memstream.c
+ * From $OpenBSD: open_memstream.c,v 1.5 2015/02/05 12:59:57 millert Exp $
+ */
+
+/*
+ * Copyright (c) 2011 Martin Pieuchot <mpi@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+struct state {
+	char		 *string;	/* actual stream */
+	char		**pbuf;		/* point to the stream */
+	size_t		 *psize;	/* point to min(pos, len) */
+	size_t		  pos;		/* current position */
+	size_t		  size;		/* number of allocated char */
+	size_t		  len;		/* length of the data */
+	void		 *caller;	/* caller of open_memstream */
+};
+
+static int
+memstream_write(void *v, const char *b, int l)
+{
+	struct state	*st = v;
+	char		*p;
+	size_t		 i, end;
+
+	end = (st->pos + l);
+
+	if (end >= st->size) {
+		/* 1.6 is (very) close to the golden ratio. */
+		size_t	sz = st->size * 8 / 5;
+
+		if (sz < end + 1)
+			sz = end + 1;
+		p = realloc0(st->string, sz, st->caller);
+		if (!p)
+			return (-1);
+		bzero(p + st->size, sz - st->size);
+		*st->pbuf = st->string = p;
+		st->size = sz;
+	}
+
+	for (i = 0; i < l; i++)
+		st->string[st->pos + i] = b[i];
+	st->pos += l;
+
+	if (st->pos > st->len) {
+		st->len = st->pos;
+		st->string[st->len] = '\0';
+	}
+
+	*st->psize = st->pos;
+
+	return (i);
+}
+
+static off_t
+memstream_seek(void *v, off_t off, int whence)
+{
+	struct state	*st = v;
+	size_t		 base = 0;
+
+	switch (whence) {
+	case SEEK_SET:
+		break;
+	case SEEK_CUR:
+		base = st->pos;
+		break;
+	case SEEK_END:
+		base = st->len;
+		break;
+	}
+
+	if ((off > 0 && off > SIZE_MAX - base) || (off < 0 && base < -off)) {
+		errno = EOVERFLOW;
+		return (-1);
+	}
+
+	st->pos = base + off;
+	*st->psize = MINIMUM(st->pos, st->len);
+
+	return (st->pos);
+}
+
+static int
+memstream_close(void *v)
+{
+	struct state	*st = v;
+
+	free(st);
+
+	return (0);
+}
+
+FILE *
+mleakdetect_open_memstream(char **pbuf, size_t *psize, void *caller)
+{
+	struct state	*st;
+	FILE		*fp;
+
+	if (pbuf == NULL || psize == NULL) {
+		errno = EINVAL;
+		return (NULL);
+	}
+
+	if ((st = malloc0(sizeof(*st), caller)) == NULL)
+		return (NULL);
+
+	st->size = BUFSIZ;
+	if ((st->string = calloc0(1, st->size, caller)) == NULL) {
+		free(st);
+		return (NULL);
+	}
+
+	*st->string = '\0';
+	st->pos = 0;
+	st->len = 0;
+	st->pbuf = pbuf;
+	st->psize = psize;
+	st->caller = caller;
+
+	*pbuf = st->string;
+	*psize = st->len;
+
+	if ((fp = funopen(st, NULL, memstream_write, memstream_seek,
+	    memstream_close)) == NULL) {
+		free(st);
+	}
+
+	return (fp);
+}
