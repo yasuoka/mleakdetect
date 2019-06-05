@@ -349,25 +349,14 @@ mleakdetect_atexit(void)
 void
 mleakdetect_dump(int fd)
 {
-	FILE		*out;
 	struct memchunk	*m, *mt, *ms, *n, *l;
 	Dl_info		 dlinfo;
 	size_t		 total_leaks = 0;
 	extern char	*__progname;
 
 	mleakdetect_stopped = 1;
-	/*
-	 * dup fd before fdopen.  We would like to close FILE *out but
-	 * need to keep opening the underlaying file descriptor.
-	 */
-	if ((fd = dup(fd)) < 0)
-		return;
-	if ((out = fdopen(dup(fd), "a+")) == NULL) {
-		close(fd);
-		return;
-	}
 
-	fprintf(out,
+	dprintf(fd,
 	    "\n"
 	    "%s (pid=%d) mleakdetect report:\n"
 	    "    malloc        %10d\n"
@@ -396,7 +385,7 @@ mleakdetect_dump(int fd)
 		if (ms == NULL) {
 			if ((ms = mleakdetect_malloc(sizeof(struct memchunk)))
 			    == NULL) {
-				fprintf(out, "malloc failed\n");
+				dprintf(fd, "malloc failed\n");
 				goto on_error;
 			}
 			*ms = *m;
@@ -431,26 +420,25 @@ mleakdetect_dump(int fd)
 		n = TAILQ_NEXT(m, next);
 	}
 
-	fprintf(out, "    total leaks   %10zu\n\n", total_leaks);
-	fprintf(out, "memory leaks:\n");
-	fprintf(out,
+	dprintf(fd, "    total leaks   %10zu\n\n", total_leaks);
+	dprintf(fd, "memory leaks:\n");
+	dprintf(fd,
 	    "    total bytes  count  avg. bytes  calling func(addr)\n");
 
 	TAILQ_FOREACH(m, &mleakdetect_stat, next) {
-		fprintf(out,
+		dprintf(fd,
 		    "    %11zu %6d %11d  ", m->size, m->count,
 		    (int)(m->size / m->count));
 		if (dladdr(m->caller, &dlinfo) != 0 &&
 		    dlinfo.dli_sname != NULL && dlinfo.dli_sname[0] != '\0')
-			fprintf(out, "%s+0x%x\n",
+			dprintf(fd, "%s+0x%x\n",
 			    dlinfo.dli_sname,
 			    (int)((caddr_t)m->caller -
 				    (caddr_t)dlinfo.dli_saddr));
 		else
-			fprintf(out, "%p\n", m->caller);
+			dprintf(fd, "%p\n", m->caller);
 	}
 on_error:
-	fclose(out);
 	mleakdetect_stopped = 0;
 }
 
