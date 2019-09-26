@@ -195,7 +195,7 @@ calloc0(size_t nmemb, size_t size, void *caller)
 		return (NULL);
 	memset(m, 0, (nmemb + cnt) * size);
 
-	m->size = (nmemb + cnt) * size;
+	m->size = nmemb * size;
 	m->caller = __builtin_return_address(0);
 	pthread_spin_lock(&mleakdetect_lock);
 	mleakdetect_malloc_count++;
