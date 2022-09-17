@@ -224,7 +224,7 @@ recallocarray(void *ptr, size_t oldnmemb, size_t nmemb, size_t size)
 
 	ret = realloc0(ptr, nmemb * size, __builtin_return_address(0));
 
-	if (ret != NULL && nmemb - oldnmemb > 0)
+	if (ret != NULL && nmemb > oldnmemb)
 		memset(ret + oldnmemb * size, 0, (nmemb - oldnmemb) * size);
 
 	return (ret);
