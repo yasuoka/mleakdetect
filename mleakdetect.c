@@ -35,7 +35,7 @@ struct memchunk {
 	int			 count;
 	RB_ENTRY(memchunk)	 tree;
 	TAILQ_ENTRY(memchunk)	 next;
-	u_char data[0];
+	u_char			 data[0];
 };
 RB_HEAD(memchunk_tree, memchunk);
 TAILQ_HEAD(memchunk_head, memchunk);
@@ -201,9 +201,9 @@ calloc0(size_t nmemb, size_t size, void *caller)
 	if (m == NULL)
 		return (NULL);
 	memset(m, 0, (nmemb + cnt) * size);
-
 	m->size = nmemb * size;
 	m->caller = caller;
+
 	pthread_spin_lock(&mleakdetect_lock);
 	mleakdetect_malloc_count++;
 	RB_INSERT(memchunk_tree, &mleakdetect_memchunk, m);
@@ -471,7 +471,7 @@ mleakdetect_dump(int fd)
 	}
 
 	if (TAILQ_FIRST(&mleakdetect_unknown_free) != NULL) {
-		dprintf(fd, "\nunknown free:\n");
+		dprintf(fd, "\nunknown frees:\n");
 		dprintf(fd, "     count  calling func(addr)\n");
 	}
 	TAILQ_FOREACH(m, &mleakdetect_unknown_free, next) {
