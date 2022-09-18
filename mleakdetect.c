@@ -123,10 +123,10 @@ malloc0(size_t size, void *caller)
 {
 	struct memchunk *m;
 
-	if (mleakdetect_stopped)
-		return (mleakdetect_malloc(size));
 	if (mleakdetect_initialized == 0)
 		mleakdetect_initialize();
+	if (mleakdetect_stopped)
+		return (mleakdetect_malloc(size));
 
 	m = mleakdetect_malloc(offsetof(struct memchunk, data[size]));
 	if (m == NULL)
@@ -188,13 +188,13 @@ calloc0(size_t nmemb, size_t size, void *caller)
 	struct memchunk *m;
 	void		*r;
 
+	if (mleakdetect_initialized == 0)
+		mleakdetect_initialize();
 	if (mleakdetect_stopped) {
 		r = mleakdetect_malloc(size);
 		memset(r, 0, size);
 		return (r);
 	}
-	if (mleakdetect_initialized == 0)
-		mleakdetect_initialize();
 	
 	cnt = (offsetof(struct memchunk, data[0]) / size) + 1;
 	m = mleakdetect_malloc((nmemb + cnt) * size);
@@ -344,6 +344,8 @@ freezero0(void *mem, size_t size, void *caller)
 	if (mem == NULL)
 		return;
 
+	if (mleakdetect_initialized == 0)
+		mleakdetect_initialize();
 	if (mleakdetect_stopped) {
 		if (mleakdetect_freezero != NULL && size > 0)
 			mleakdetect_freezero(mem, size);
@@ -351,8 +353,6 @@ freezero0(void *mem, size_t size, void *caller)
 			mleakdetect_free(mem);
 		return;
 	}
-	if (mleakdetect_initialized == 0)
-		mleakdetect_initialize();
 
 	m0 = (struct memchunk *)
 	    ((caddr_t)mem - offsetof(struct memchunk, data));
