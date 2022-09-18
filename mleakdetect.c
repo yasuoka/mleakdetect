@@ -247,15 +247,15 @@ strdup(const char *str)
 char *
 strndup(const char *str, size_t maxlen)
 {
-	void	*p;
+	char	*p;
 	int	 lstr = 0;
 
-	while (str[lstr] != '\0' && lstr < maxlen)
-		lstr++;
-	lstr++;
-
-	p = malloc0(lstr, __builtin_return_address(0));
-	strlcpy(p, str, lstr);
+	lstr = strnlen(str, maxlen);
+	p = malloc0(lstr + 1, __builtin_return_address(0));
+	if (p != NULL) {
+		memcpy(p, str, lstr);
+		p[lstr] = '\0';
+	}
 
 	return (p);
 }
