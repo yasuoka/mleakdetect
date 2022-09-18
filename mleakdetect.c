@@ -30,8 +30,8 @@
 #include <pthread.h>
 
 struct memchunk {
-	void			*caller;
 	size_t			 size;
+	void			*caller;
 	int			 count;
 	RB_ENTRY(memchunk)	 tree;
 	TAILQ_ENTRY(memchunk)	 next;
