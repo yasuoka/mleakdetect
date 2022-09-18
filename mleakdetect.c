@@ -375,9 +375,11 @@ freezero0(void *mem, size_t size, void *caller)
 				break;
 		}
 		if (m0 == NULL) {
+			pthread_spin_unlock(&mleakdetect_lock);
 			m0 = mleakdetect_malloc(sizeof(*m0));
 			memset(m0, 0, sizeof(*m0));
 			m0->caller = caller;
+			pthread_spin_lock(&mleakdetect_lock);
 			TAILQ_INSERT_TAIL(&mleakdetect_unknown_free, m0, next);
 		}
 		m0->count++;
