@@ -238,7 +238,8 @@ strdup(const char *str)
 
 	lstr = strlen(str) + 1;
 	p = malloc0(lstr, __builtin_return_address(0));
-	strlcpy(p, str, lstr);
+	if (p != NULL)
+		memcpy(p, str, lstr);
 
 	return (p);
 }
