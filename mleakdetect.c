@@ -192,7 +192,7 @@ calloc0(size_t nmemb, size_t size, void *caller)
 		mleakdetect_initialize();
 	if (mleakdetect_stopped) {
 		r = mleakdetect_malloc(size);
-		memset(r, 0, size);
+		memset(r, 0, nmemb * size);
 		return (r);
 	}
 	
