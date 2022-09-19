@@ -553,7 +553,12 @@ pthread_spin_unlock(pthread_spinlock_t *lock)
 int
 memchunk_cmp(struct memchunk *a, struct memchunk *b)
 {
-	return a - b;
+	/* (a - b) might > INT_MAX or < INT_MIN.  actually true on OpenBSD.*/
+	if (a > b)
+		return (1);
+	else if (a == b)
+		return (0);
+	return (-1);
 }
 
 RB_GENERATE_STATIC(memchunk_tree, memchunk, tree, memchunk_cmp);
