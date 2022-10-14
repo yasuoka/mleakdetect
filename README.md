@@ -1,7 +1,7 @@
 mleakdetect.so
 ==============
 
-minimum memory leak checker
+minimum memory leak checker.  Currently this works on OpenBSD.
 
 Compile
 -------
